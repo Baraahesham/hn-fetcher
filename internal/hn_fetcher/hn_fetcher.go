@@ -108,7 +108,7 @@ func (client *HnFetcherClient) FetchAndPublishStory(ctx context.Context, id int6
 }
 
 func (client *HnFetcherClient) FetchTopStoriesIDs(ctx context.Context, limit int) ([]int64, error) {
-	url := "https://hacker-news.firebaseio.com/v0/topstories.json"
+	url := viper.GetString(config.HNBaseUrl) + config.TopStoriesUrlPath
 	params := map[string]string{"print": "pretty"}
 
 	body, _, err := client.restClient.ExecuteHttpRequest(ctx, "GET", url, params, nil, nil)
@@ -130,7 +130,7 @@ func (client *HnFetcherClient) FetchTopStoriesIDs(ctx context.Context, limit int
 }
 
 func (client *HnFetcherClient) FetchStoryByID(ctx context.Context, id int64) (*models.StoryDbModel, error) {
-	url := fmt.Sprintf("https://hacker-news.firebaseio.com/v0/item/%d.json", id)
+	url := viper.GetString(config.HNBaseUrl) + fmt.Sprintf(config.FetchStoryByIDUrlPath, id)
 
 	body, _, err := client.restClient.ExecuteHttpRequest(ctx, "GET", url, nil, nil, nil)
 	if err != nil {

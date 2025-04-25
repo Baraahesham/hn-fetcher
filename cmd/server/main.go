@@ -103,5 +103,6 @@ func setupEnv() {
 	viper.SetDefault(config.NatsSubject, "hnfetcher.topstories")
 	viper.SetDefault(config.MaxWorkers, 10)
 	viper.SetDefault(config.MaxCapacity, 100)
+	viper.SetDefault(config.HNBaseUrl, "https://hacker-news.firebaseio.com/v0/")
 
 }

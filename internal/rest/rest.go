@@ -27,6 +27,11 @@ type NewRestClientParams struct {
 	Timeout time.Duration
 }
 
+const (
+	maxRetries = 3
+	retryDelay = 500 * time.Millisecond
+)
+
 func NewRestClient(params NewRestClientParams) *RestClient {
 	logger := params.Logger.With().Str("component", "RestClient").Logger()
 	return &RestClient{
@@ -85,6 +90,24 @@ func (client *RestClient) ExecuteHttpRequest(
 	if err != nil {
 		contextLogger.Error().Err(err).Msg("Failed to execute HTTP request")
 		return nil, http.StatusInternalServerError, err
+	}
+
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		if res.StatusCode >= 200 && res.StatusCode <= 299 {
+			break
+		}
+		if attempt == maxRetries {
+			contextLogger.Error().Err(err).Msg("Max retries reached")
+			return nil, res.StatusCode, errors.New("max retries reached")
+		}
+		contextLogger.Warn().Int("attempt", attempt).Msg("Retrying request")
+		time.Sleep(retryDelay)
+		res, err = client.httpClient.Do(req)
+		if err != nil {
+			contextLogger.Error().Err(err).Msg("Failed to execute HTTP request")
+			return nil, http.StatusInternalServerError, err
+		}
+
 	}
 	defer res.Body.Close()
 

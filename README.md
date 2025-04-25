@@ -71,15 +71,16 @@ Note : I will assume that **scalability** is prioritized over **and Consisten
     - Async messaging via NATS Pub/Sub.
     - Decouples the fetcher and processor services.
 
-### High Level Diagram:
+### Sequence Diagram:
 
-![image.png](attachment:d74501a6-800b-41ca-bec8-fe7374fbdbad:image.png)
 
-![image.png](attachment:78036603-61f5-47b5-bf9a-feb00dc2984a:image.png)
+![sequence Diagram](https://github.com/user-attachments/assets/fc31a325-abbf-416d-8f25-49860f59b124)
 
-### 
+### UML Class Diagram
 
-![image.png](attachment:09b9ef9d-9147-4c0b-bd16-fef3bb2e2c96:image.png)
+![Hn_fetcher](https://github.com/user-attachments/assets/80591d07-5c4f-41ef-8cbd-907f5eb0da50)
+
+![HN processor](https://github.com/user-attachments/assets/4a1dd946-12c5-4bfb-9d5a-fa6d693bff5d)
 
 Technologies:
 

@@ -2,13 +2,16 @@ package main
 
 import (
 	"context"
+	"log"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
+	"github.com/gofiber/fiber/v2"
 	"github.com/rs/zerolog"
 
+	"github.com/Baraahesham/hn-fetcher/internal/api"
 	"github.com/Baraahesham/hn-fetcher/internal/config"
 	"github.com/Baraahesham/hn-fetcher/internal/db"
 	hnfetcher "github.com/Baraahesham/hn-fetcher/internal/hn_fetcher"
@@ -24,7 +27,7 @@ func main() {
 	logger := zerolog.New(os.Stdout).With().Logger()
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	//intialize DB client
+	//Initialize DB client
 	DBClient, err := db.NewClient(db.NewDBClientParams{
 		Logger: &logger,
 		DbUrl:  viper.GetString(config.DBUrl),
@@ -47,7 +50,6 @@ func main() {
 		return
 	}
 	logger.Info().Msg("Connected to NATS")
-	natsClient.Publish(viper.GetString(config.NatsSubject), "test message")
 
 	// Initialize the HN client
 	hnClient := hnfetcher.NewHNClient(hnfetcher.NewHnFetcherParams{
@@ -56,13 +58,26 @@ func main() {
 		RestClient: *restClient,
 		DbClient:   DBClient,
 		NatsClient: natsClient,
+		FetchLimit: 50,
 	})
+	// Initialize the API server
+	app := fiber.New()
+	// Initialize the API handler
+	apiHandler := api.NewHandler(api.NewHandlerParams{
+		Logger:   &logger,
+		DbClient: DBClient,
+	})
+	api.RegisterRoutes(app, apiHandler)
+
+	log.Printf("Starting server on port %s", viper.GetString(config.Port))
 	// Fetch and store top stories
 	go func() {
-		if err := hnClient.FetchAndStoreTopStories(ctx, 50); err != nil {
-			logger.Error().Err(err).Msg("Fetcher exited with error")
+		if err := app.Listen(":" + viper.GetString(config.Port)); err != nil {
+			logger.Error().Err(err).Msg("Failed to start server")
 		}
 	}()
+	// Start the hnClient listener
+	hnClient.Init()
 
 	logger.Info().Msg("hn-fetcher is running. Press Ctrl+C to exit...")
 
@@ -78,18 +93,7 @@ func main() {
 	}
 
 	logger.Info().Msg("Shutdown complete")
-
-	/*
-		app := fiber.New()
-
-		app.Get("/", func(c *fiber.Ctx) error {
-			return c.SendString("Hacker News Fetcher is running")
-		})
-
-		log.Printf("Starting server on port %s", viper.GetString(config.Port))
-		if err := app.Listen(":" + viper.GetString(config.Port)); err != nil {
-			log.Fatal(err)
-		}*/
+	app.Shutdown()
 }
 func setupEnv() {
 	viper.SetDefault(config.RestTimeoutInSec, 5)
@@ -97,5 +101,7 @@ func setupEnv() {
 	viper.SetDefault(config.DBUrl, "postgres://hnuser:hnpass@localhost:5432/hackernews?sslmode=disable")
 	viper.SetDefault(config.NatsUrl, "nats://localhost:4222")
 	viper.SetDefault(config.NatsSubject, "hnfetcher.topstories")
+	viper.SetDefault(config.MaxWorkers, 10)
+	viper.SetDefault(config.MaxCapacity, 100)
 
 }

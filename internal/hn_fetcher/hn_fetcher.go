@@ -8,11 +8,13 @@ import (
 
 	"github.com/Baraahesham/hn-fetcher/internal/config"
 	"github.com/Baraahesham/hn-fetcher/internal/db"
+	Err "github.com/Baraahesham/hn-fetcher/internal/errors"
 	"github.com/Baraahesham/hn-fetcher/internal/models"
 	"github.com/Baraahesham/hn-fetcher/internal/nats"
 	"github.com/Baraahesham/hn-fetcher/internal/rest"
-
+	"github.com/alitto/pond"
 	"github.com/rs/zerolog"
+	"github.com/spf13/viper"
 )
 
 type HnFetcherClient struct {
@@ -21,6 +23,8 @@ type HnFetcherClient struct {
 	logger     *zerolog.Logger
 	dbClient   *db.DBClient
 	natsClient nats.NatsClient
+	fetchLimit int
+	workerPool *pond.WorkerPool
 }
 type NewHnFetcherParams struct {
 	Ctx        context.Context
@@ -28,22 +32,33 @@ type NewHnFetcherParams struct {
 	RestClient rest.RestClient
 	DbClient   *db.DBClient
 	NatsClient *nats.NatsClient
+	FetchLimit int
 }
 
 func NewHNClient(params NewHnFetcherParams) *HnFetcherClient {
+	pool := pond.New(
+		viper.GetInt(config.MaxWorkers),
+		viper.GetInt(config.MaxCapacity),
+		pond.Context(params.Ctx),
+		pond.Strategy(pond.Balanced()),
+	)
 	client := &HnFetcherClient{
 		restClient: params.RestClient,
 		logger:     params.Logger,
 		dbClient:   params.DbClient,
 		ctx:        params.Ctx,
 		natsClient: *params.NatsClient,
+		fetchLimit: params.FetchLimit,
+		workerPool: pool,
 	}
 	return client
 }
-
-func (client *HnFetcherClient) FetchAndStoreTopStories(ctx context.Context, limit int) error {
+func (client *HnFetcherClient) Init() {
+	go client.FetchAndStoreTopStories(client.ctx)
+}
+func (client *HnFetcherClient) FetchAndStoreTopStories(ctx context.Context) error {
 	// 1. Get top story IDs
-	topIDs, err := client.FetchTopStoryIDs(ctx, limit)
+	topIDs, err := client.FetchTopStoriesIDs(ctx, client.fetchLimit)
 	if err != nil {
 		client.logger.Error().Err(err).Msg("Failed to fetch top story IDs")
 		return err
@@ -51,31 +66,48 @@ func (client *HnFetcherClient) FetchAndStoreTopStories(ctx context.Context, limi
 
 	// 2. For each ID, fetch and store story
 	for _, id := range topIDs {
-		story, err := client.FetchStoryByID(ctx, id)
-		if err != nil {
-			client.logger.Error().Err(err).Int64("story_id", id).Msg("Failed to fetch story by ID")
-			continue
-		}
-		/*err = client.dbClient.InsertStory(*story)
-		if err != nil {
-			client.logger.Error().Err(err).Int64("story_id", id).Msg("Failed to insert story into database, skipping publishing")
-			continue
-		}*/
-		natsEvent := models.StoryEvent{
-			ID:    story.HnID,
-			Title: story.Title,
-		}
-		err = client.natsClient.Publish(config.NatsSubject, natsEvent)
-		if err != nil {
-			client.logger.Error().Err(err).Int64("story_id", id).Msg("Failed to publish story to NATS")
-			continue
-		}
+		client.workerPool.Submit(func() {
+			err := client.FetchAndPublishStory(client.ctx, id)
+			if err != nil {
+				client.logger.Error().Err(err).Int64("story_id", id).Msg("Failed to fetch and publish story")
+			}
+		})
+
 	}
 
 	return nil
 }
+func (client *HnFetcherClient) FetchAndPublishStory(ctx context.Context, id int64) error {
+	story, err := client.FetchStoryByID(ctx, id)
+	if err != nil {
+		client.logger.Error().Err(err).Int64("story_id", id).Msg("Failed to fetch story by ID")
+		return err
+	}
+	err = client.dbClient.InsertStory(*story)
+	if err != nil {
+		var msg string
+		if err == Err.ErrStoryAlreadyExists {
+			msg = "Story already exists in the database, skipping publish"
+		} else {
+			msg = "Failed to insert story into database, skipping publish"
+		}
+		client.logger.Error().Err(err).Int64("story_id", id).Msg(msg)
+		return err
+	}
+	natsEvent := models.StoryEvent{
+		HnID:  story.HnID,
+		Title: story.Title,
+	}
+	err = client.natsClient.Publish(config.NatsSubject, natsEvent)
+	if err != nil {
+		client.logger.Error().Err(err).Int64("story_id", id).Msg("Failed to publish story to NATS")
+		return err
+	}
+	client.logger.Info().Int64("story_id", id).Msg("Story successfully published to NATS")
+	return nil
+}
 
-func (client *HnFetcherClient) FetchTopStoryIDs(ctx context.Context, limit int) ([]int64, error) {
+func (client *HnFetcherClient) FetchTopStoriesIDs(ctx context.Context, limit int) ([]int64, error) {
 	url := "https://hacker-news.firebaseio.com/v0/topstories.json"
 	params := map[string]string{"print": "pretty"}
 

@@ -1,11 +1,15 @@
 package db
 
 import (
+	"errors"
+
+	Err "github.com/Baraahesham/hn-fetcher/internal/errors"
 	"github.com/Baraahesham/hn-fetcher/internal/models"
 
 	"github.com/rs/zerolog"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type DBClient struct {
@@ -46,13 +50,54 @@ func NewClient(params NewDBClientParams) (*DBClient, error) {
 
 // InsertStory inserts a story into the database
 func (client *DBClient) InsertStory(story models.StoryDbModel) error {
-	err := client.Gorm.Create(&story).Error
-	if err != nil {
+	//var existing models.StoryDbModel
+	res := client.Gorm.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "hn_id"}},
+		DoNothing: true,
+	}).Where("hn_id = ?", story.HnID).First(&story)
+
+	if res.Error == nil {
+		client.logger.Warn().Int64("story_id", story.HnID).Msg("Story already exists in database, skipping insert")
+		return Err.ErrStoryAlreadyExists
+	}
+
+	if !errors.Is(res.Error, gorm.ErrRecordNotFound) {
+		client.logger.Error().Err(res.Error).Int64("story_id", story.HnID).Msg("Failed to check if story exists")
+		return res.Error
+	}
+
+	// Story doesn't exist → insert
+	if err := client.Gorm.Create(&story).Error; err != nil {
 		client.logger.Error().Err(err).Int64("story_id", story.HnID).Msg("Failed to insert story into database")
 		return err
 	}
-	client.logger.Info().Int64("story_id", story.HnID).Msg("Story inserted into database")
+
+	client.logger.Info().Err(res.Error).Int64("story_id", story.HnID).Msg("Story inserted into database")
 	return nil
+}
+func (client *DBClient) GetBrandMentionStats() ([]models.BrandStats, error) {
+	var stats []models.BrandStats
+	err := client.Gorm.Raw(`
+		SELECT brand, COUNT(*) AS mentions 
+		FROM brand_mentions 
+		GROUP BY brand 
+		ORDER BY mentions DESC
+	`).Scan(&stats).Error
+	return stats, err
+}
+
+func (client *DBClient) GetStoriesByBrand(brand string) ([]models.StoryDbModel, error) {
+	var stories []models.StoryDbModel
+	client.logger.Info().Str("brand", brand).Msg("Fetching stories by brand")
+	err := client.Gorm.Raw(`
+		SELECT s.* 
+		FROM stories s 
+		JOIN brand_mentions bm ON s.hn_id = bm.hn_id 
+		WHERE bm.brand = ? 
+		ORDER BY s.time DESC
+	`, brand).Scan(&stories).Error
+	client.logger.Info().Any("story", stories).Msg("Fetched stories by brand")
+	return stories, err
 }
 
 func (client *DBClient) Close() error {

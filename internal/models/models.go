@@ -26,7 +26,11 @@ func (StoryDbModel) TableName() string {
 }
 
 type StoryEvent struct {
-	ID    int64  `json:"id"`
+	HnID  int64  `json:"id"`
 	Title string `json:"title"`
 	URL   string `json:"url"`
+}
+type BrandStats struct {
+	Brand    string `json:"brand"`
+	Mentions int    `json:"mentions"`
 }

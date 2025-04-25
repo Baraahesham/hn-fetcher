@@ -194,3 +194,76 @@ docker-compose up -d
 - Database: `hackernews`
 - Username: `hnuser`
 - Password: `hnpass`
+# Example API Requests (cURL)
+
+### 1. Get Brand Mention Statistics
+
+```bash
+
+curl -X GET http://localhost:8080/brands/stats
+
+```
+
+✅ **Returns**: A list of brands with their total number of mentions.
+
+Example response:
+
+```json
+
+[
+    {
+        "brand": "linux",
+        "mentions": 2
+    },
+    {
+        "brand": "slack",
+        "mentions": 1
+    },
+    {
+        "brand": "microsoft",
+        "mentions": 1
+    },
+    {
+        "brand": "openai",
+        "mentions": 1
+    }
+]
+
+```
+
+---
+
+### 2. Get Stories Where a Specific Brand Was Mentioned (e.g., `linux`)
+
+```bash
+
+curl -X GET http://localhost:8080/brands/linux/stories
+
+```
+
+✅ **Returns**: All Hacker News stories where the brand **Linux** was mentioned.
+
+Example response:
+
+```json
+
+[
+    {
+        "ID": 103,
+        "Title": "Writing a Linux Debugger (2017)",
+        "Author": "",
+        "URL": "https://blog.tartanllama.xyz/writing-a-linux-debugger-setup/",
+        "Time": "2025-04-25T15:39:32+03:00",
+        "HnID": 43792941
+    },
+    {
+        "ID": 43,
+        "Title": "Daily driving a Linux phone, but why?",
+        "Author": "",
+        "URL": "https://thefoggiest.dev/2025/04/24/daily-driving-a-linux-phone-but-why",
+        "Time": "2025-04-24T08:13:35+02:00",
+        "HnID": 43779766
+    }
+]
+
+```
